@@ -4,130 +4,154 @@ import os
 import time
 
 
-# =========================
-# CONFIGURATION
-# =========================
-
 BASELINE_FILE = "process_baseline.json"
 ALERT_LOG = "alerts.log"
+SEEN_ALERTS_FILE = "seen_process_alerts.json"
 
-# Score required to generate an alert
 ALERT_THRESHOLD = 3
 
-# Paths that are commonly worth investigating
 SUSPICIOUS_PATHS = [
     "/tmp",
     "/dev/shm"
 ]
 
 
-# =========================
-# LOAD BASELINE
-# =========================
+# --------------------------------------------------
+# Load baseline
+# --------------------------------------------------
 
 def load_baseline():
 
     if not os.path.exists(BASELINE_FILE):
         return set()
 
-    with open(BASELINE_FILE, "r") as file:
-        data = json.load(file)
+    try:
 
-    baseline = set()
+        with open(BASELINE_FILE, "r") as file:
+            data = json.load(file)
 
-    for item in data:
-        baseline.add(tuple(item))
+        baseline = set()
 
-    return baseline
+        for process in data:
+
+            name = process[0]
+            exe = process[1]
+            username = process[2]
+
+            baseline.add(
+                (name, exe, username)
+            )
+
+        return baseline
+
+    except Exception:
+        return set()
 
 
-# =========================
-# GET CURRENT PROCESSES
-# =========================
+# --------------------------------------------------
+# Load previously alerted processes
+# --------------------------------------------------
 
-def get_processes():
+def load_seen_alerts():
 
-    processes = []
+    if not os.path.exists(SEEN_ALERTS_FILE):
+        return set()
 
-    for process in psutil.process_iter(
-        ["pid", "name", "username", "exe", "cmdline"]
+    try:
+
+        with open(SEEN_ALERTS_FILE, "r") as file:
+            return set(json.load(file))
+
+    except Exception:
+        return set()
+
+
+# --------------------------------------------------
+# Save alerted processes
+# --------------------------------------------------
+
+def save_seen_alerts(seen_alerts):
+
+    with open(SEEN_ALERTS_FILE, "w") as file:
+        json.dump(list(seen_alerts), file)
+
+
+# --------------------------------------------------
+# Get process information
+# --------------------------------------------------
+
+def get_process_info(process):
+
+    try:
+
+        info = process.info
+
+        return {
+            "pid": info["pid"],
+            "name": info["name"] or "unknown",
+            "username": info["username"] or "unknown",
+            "exe": info["exe"] or "",
+            "cmdline": info["cmdline"] or []
+        }
+
+    except (
+        psutil.NoSuchProcess,
+        psutil.AccessDenied,
+        psutil.ZombieProcess
     ):
 
-        try:
-
-            info = process.info
-
-            processes.append(info)
-
-        except (
-            psutil.NoSuchProcess,
-            psutil.AccessDenied
-        ):
-            continue
-
-    return processes
+        return None
 
 
-# =========================
-# CREATE PROCESS IDENTITY
-# =========================
+# --------------------------------------------------
+# Calculate risk score
+# --------------------------------------------------
 
-def process_identity(info):
+def calculate_score(info, baseline):
 
-    return (
+    score = 0
+    reasons = []
+
+    process_identity = (
         info["name"],
         info["exe"],
         info["username"]
     )
 
-
-# =========================
-# DETECT SUSPICIOUS BEHAVIOR
-# =========================
-
-def analyze_process(info, baseline):
-
-    score = 0
-    reasons = []
-
-    name = info["name"] or "unknown"
-    exe = info["exe"] or ""
-    username = info["username"] or "unknown"
-
-    # -------------------------
+    # --------------------------------------------------
     # 1. New process
-    # -------------------------
+    # --------------------------------------------------
 
-    identity = process_identity(info)
-
-    if identity not in baseline:
+    if process_identity not in baseline:
 
         score += 1
+        reasons.append("New process")
 
-        reasons.append(
-            "Process not present in baseline"
-        )
 
-    # -------------------------
-    # 2. Executable from
-    #    suspicious path
-    # -------------------------
+    # --------------------------------------------------
+    # 2. Suspicious executable path
+    # --------------------------------------------------
 
-    for path in SUSPICIOUS_PATHS:
+    exe = info["exe"]
 
-        if exe.startswith(path):
+    if exe:
 
-            score += 3
+        for path in SUSPICIOUS_PATHS:
 
-            reasons.append(
-                f"Executable from suspicious path: {path}"
-            )
+            if exe.startswith(path):
 
-            break
+                score += 3
 
-    # -------------------------
+                reasons.append(
+                    f"Executable from suspicious path: {path}"
+                )
+
+                break
+
+
+    # --------------------------------------------------
     # 3. Suspicious command line
-    # -------------------------
+    # --------------------------------------------------
 
     cmdline = info.get("cmdline") or []
 
@@ -145,21 +169,20 @@ def analyze_process(info, baseline):
 
             break
 
-    # -------------------------
-    # 4. Running as root
-    # -------------------------
 
-    if username == "root":
+    # --------------------------------------------------
+    # 4. Running as root
+    # --------------------------------------------------
+
+    if info["username"] == "root":
 
         score += 1
+        reasons.append("Running as root")
 
-        reasons.append(
-            "Running as root"
-        )
 
-    # -------------------------
-    # 5. High CPU
-    # -------------------------
+    # --------------------------------------------------
+    # 5. High CPU usage
+    # --------------------------------------------------
 
     try:
 
@@ -172,7 +195,7 @@ def analyze_process(info, baseline):
             score += 1
 
             reasons.append(
-                f"High CPU usage: {cpu:.1f}%"
+                f"High CPU usage ({cpu:.1f}%)"
             )
 
     except (
@@ -182,12 +205,13 @@ def analyze_process(info, baseline):
 
         pass
 
+
     return score, reasons
 
 
-# =========================
-# WRITE ALERT
-# =========================
+# --------------------------------------------------
+# Write alert
+# --------------------------------------------------
 
 def write_alert(info, score, reasons):
 
@@ -195,45 +219,28 @@ def write_alert(info, score, reasons):
         "%Y-%m-%d %H:%M:%S"
     )
 
-    name = info["name"] or "unknown"
-    pid = info["pid"]
-    username = info["username"] or "unknown"
-
     command = " ".join(
         info.get("cmdline") or []
     )
 
+    message = (
+        f"{timestamp} | PROCESS_ALERT | "
+        f"process={info['name']} | "
+        f"pid={info['pid']} | "
+        f"user={info['username']} | "
+        f"command={command} | "
+        f"score={score} | "
+        f"reasons={'; '.join(reasons)}\n"
+    )
+
     with open(ALERT_LOG, "a") as file:
 
-        file.write(
-            f"{timestamp} | PROCESS_ALERT | "
-            f"process={name} | "
-            f"pid={pid} | "
-            f"user={username} | "
-            f"score={score} | "
-            f"command={command} | "
-            f"reasons={'; '.join(reasons)}\n"
-        )
-
-    print("🚨 PROCESS ALERT")
-    print("Process:", name)
-    print("PID:", pid)
-    print("User:", username)
-    print("Command:", command)
-    print("Risk Score:", score)
-
-    print("Reasons:")
-
-    for reason in reasons:
-
-        print(" -", reason)
-
-    print()
+        file.write(message)
 
 
-# =========================
-# MAIN DETECTION
-# =========================
+# --------------------------------------------------
+# Main detection
+# --------------------------------------------------
 
 def main():
 
@@ -242,46 +249,121 @@ def main():
 
     baseline = load_baseline()
 
-    processes = get_processes()
+    seen_alerts = load_seen_alerts()
 
-    alerts = 0
+    current_alerts = set()
 
-    for info in processes:
+    suspicious_count = 0
 
-        score, reasons = analyze_process(
+
+    for process in psutil.process_iter(
+        [
+            "pid",
+            "name",
+            "username",
+            "exe",
+            "cmdline"
+        ]
+    ):
+
+        info = get_process_info(process)
+
+        if info is None:
+            continue
+
+
+        score, reasons = calculate_score(
             info,
             baseline
         )
 
+
+        # Unique ID for THIS running process
+        #
+        # PID makes sure that if the process disappears
+        # and starts again, we can generate a new alert.
+
+        alert_id = (
+            f"{info['pid']}|"
+            f"{info['name']}|"
+            f"{' '.join(info['cmdline'])}"
+        )
+
+
+        # Remember that this process currently exists
+
         if score >= ALERT_THRESHOLD:
 
-            write_alert(
-                info,
-                score,
-                reasons
-            )
+            current_alerts.add(alert_id)
 
-            alerts += 1
+
+            # Don't repeatedly alert for the same process
+
+            if alert_id not in seen_alerts:
+
+                write_alert(
+                    info,
+                    score,
+                    reasons
+                )
+
+                print("🚨 PROCESS ALERT")
+                print("Process:", info["name"])
+                print("PID:", info["pid"])
+                print("User:", info["username"])
+                print(
+                    "Command:",
+                    " ".join(info["cmdline"])
+                )
+                print("Risk Score:", score)
+                print("Reasons:")
+
+                for reason in reasons:
+
+                    print(" -", reason)
+
+                print()
+
+                suspicious_count += 1
+
+                seen_alerts.add(alert_id)
+
+
+    # Remove processes that no longer exist
+    #
+    # This means if the same process starts again later,
+    # it can generate a fresh alert.
+
+    seen_alerts = seen_alerts.intersection(
+        current_alerts
+    )
+
+    save_seen_alerts(seen_alerts)
+
 
     print("Process scan completed.")
     print()
 
     print("=== Detection Summary ===")
 
-    if alerts == 0:
+    if suspicious_count == 0:
 
-        print("No suspicious processes detected.")
+        print(
+            "No NEW suspicious processes detected."
+        )
 
     else:
 
         print(
-            f"Suspicious processes detected: {alerts}"
+            f"New suspicious processes detected: "
+            f"{suspicious_count}"
         )
 
 
-# =========================
-# START PROGRAM
-# =========================
+# --------------------------------------------------
+# Start
+# --------------------------------------------------
 
 if __name__ == "__main__":
+
     main()
