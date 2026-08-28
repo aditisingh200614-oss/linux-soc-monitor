@@ -127,8 +127,8 @@ If the suspicious process disappears and later starts again with a new process I
                                      |
                                      v
                                 alerts.log
-##Detection Logic
-###Authentication Detection
+## Detection Logic
+### Authentication Detection
 Authentication Logs
         |
         v
@@ -146,7 +146,7 @@ Possible Brute Force
         v
       Alert
 
-###Process Detection
+### Process Detection
 Running Processes
         |
         v
@@ -173,7 +173,7 @@ Analyze Process Behavior
             |              |
           Ignore        🚨 Alert
 
-###Network Detection
+### Network Detection
 Active Connections
         |
         v
@@ -191,7 +191,7 @@ Risk Score
         v
       Alert
 
-##Project Structure
+## Project Structure
 linux-soc-monitor/
 │
 ├── monitor.py
@@ -202,7 +202,7 @@ linux-soc-monitor/
 ├── .gitignore
 └── README.md
 
-##File Description
+## File Description
 File	                      Purpose
 monitor.py	        Authentication and brute-force monitoring
 process_detector.py	Process behavior monitoring and risk scoring
@@ -212,7 +212,7 @@ process_baseline.json	Stores the known process baseline
 .gitignore	        Prevents runtime/generated files from being committed
 README.md	        Project documentation
 
-##Technologies Used
+## Technologies Used
 Python 3
 Linux / WSL
 psutil
@@ -220,7 +220,7 @@ JSON
 Git
 GitHub
 
-##How to Run
+## How to Run
 
 Make sure you are inside the project directory:
 
@@ -246,7 +246,7 @@ Security alerts are stored locally in:
 
 alerts.log
 
-##View the alerts using:
+View the alerts using:
 
 cat alerts.log
 
@@ -260,7 +260,7 @@ Ctrl + C
 
 to stop tail.
 
-##Example Process Alert
+## Example Process Alert
 
 The following is an example of an alert generated during testing:
 
@@ -277,7 +277,7 @@ Reasons:
 
 This demonstrates how the monitor can identify suspicious behavior even when the executable itself is a normal program.
 
-##Example Detection Scenario
+## Example Detection Scenario
 
 A test process was created inside /tmp:
 
@@ -291,7 +291,7 @@ The process detector identified the suspicious /tmp reference in the command lin
 
 This demonstrates the difference between looking only at the executable and analyzing the complete command line.
 
-##Security Approach
+## Security Approach
 
 The project follows a basic SOC detection workflow:
 
@@ -319,7 +319,7 @@ The goal is not to classify every unusual event as malicious.
 
 Instead, multiple indicators are combined to determine whether an event is suspicious enough to generate an alert.
 
-##Limitations
+## Limitations
 
 This is an educational SOC monitoring project and is not intended to replace a production SIEM or Endpoint Detection and Response (EDR) platform.
 
@@ -335,7 +335,7 @@ Limited historical analysis
 No advanced threat intelligence integration
 Future Improvements
 
-##Possible future improvements include:
+## Possible future improvements include:
 
 Real-time authentication log monitoring
 More advanced process behavior detection
